@@ -67,11 +67,16 @@ class MainActivity : ComponentActivity() {
         database = AppDatabase.getDatabase(applicationContext)
         repository = InventoryRepository(database.inventoryItemDao())
 
-        // Auto pre-populate if database is empty on first launch
-        lifecycleScope.launch {
-            val currentItems = repository.allItems.first()
-            if (currentItems.isEmpty()) {
-                prePopulateDatabase()
+        // Auto pre-populate if database is empty on very first launch only
+        val prefs = getSharedPreferences("confeitaria_prefs", MODE_PRIVATE)
+        val isPrepopulated = prefs.getBoolean("is_prepopulated", false)
+        if (!isPrepopulated) {
+            lifecycleScope.launch {
+                val currentItems = repository.allItems.first()
+                if (currentItems.isEmpty()) {
+                    prePopulateDatabase()
+                }
+                prefs.edit().putBoolean("is_prepopulated", true).apply()
             }
         }
 
@@ -114,6 +119,7 @@ class MainActivity : ComponentActivity() {
         val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
         
         var selectedCategory by remember { mutableStateOf("Todos") }
+        var showOnlyLowStock by remember { mutableStateOf(false) }
         var itemToDelete by remember { mutableStateOf<InventoryItem?>(null) }
         var itemToEdit by remember { mutableStateOf<InventoryItem?>(null) }
         
@@ -126,12 +132,17 @@ class MainActivity : ComponentActivity() {
             cats
         }
 
-        // Filter items locally by category
-        val filteredItems = remember(items, selectedCategory) {
-            if (selectedCategory == "Todos") {
+        // Filter items locally by category and low stock status
+        val filteredItems = remember(items, selectedCategory, showOnlyLowStock) {
+            val baseList = if (selectedCategory == "Todos") {
                 items
             } else {
                 items.filter { it.category.equals(selectedCategory, ignoreCase = true) }
+            }
+            if (showOnlyLowStock) {
+                baseList.filter { it.quantity <= it.minStock }
+            } else {
+                baseList
             }
         }
 
@@ -148,8 +159,8 @@ class MainActivity : ComponentActivity() {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                    .background(MaterialTheme.colorScheme.secondary)
+                    .padding(horizontal = 20.dp, vertical = 18.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -158,34 +169,18 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Column {
                         Text(
-                            text = "Confeitaria",
-                            fontSize = 14.sp,
+                            text = "@DeeliciasdaClara",
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = Color.White,
                             letterSpacing = 1.5.sp
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Inventory",
-                            fontSize = 28.sp,
+                            text = "Controle de Estoque",
+                            fontSize = 26.sp,
                             fontWeight = FontWeight.Black,
-                            color = TextDarkCocoa
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            lifecycleScope.launch {
-                                prePopulateDatabase()
-                                Toast.makeText(context, "Dados de teste restaurados!", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        )
-                    ) {
-                        Icon(
-                            Icons.Rounded.Refresh,
-                            contentDescription = "Restaurar Dados",
-                            tint = MaterialTheme.colorScheme.primary
+                            color = Color.White
                         )
                     }
                 }
@@ -248,15 +243,33 @@ class MainActivity : ComponentActivity() {
                         .height(40.dp)
                         .background(Color.White.copy(alpha = 0.3f)))
 
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1.2f)) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (showOnlyLowStock) Color.White.copy(alpha = 0.25f) else Color.Transparent)
+                            .clickable { showOnlyLowStock = !showOnlyLowStock }
+                            .padding(vertical = 6.dp, horizontal = 4.dp)
+                    ) {
                         Icon(
                             Icons.Rounded.WarningAmber, 
-                            contentDescription = null, 
-                            tint = if (alertCount > 0) Color(0xFFFFEB3B) else Color.White.copy(alpha = 0.8f)
+                            contentDescription = "Filtrar Baixo Estoque", 
+                            tint = if (showOnlyLowStock) Color(0xFFFFEB3B) else if (alertCount > 0) Color(0xFFFFEB3B) else Color.White.copy(alpha = 0.8f)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("Baixo Estoque", fontSize = 11.sp, color = Color.White.copy(alpha = 0.8f))
-                        Text("$alertCount", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (alertCount > 0) Color(0xFFFFEB3B) else Color.White)
+                        Text(
+                            text = "Baixo Estoque",
+                            fontSize = 11.sp,
+                            fontWeight = if (showOnlyLowStock) FontWeight.Bold else FontWeight.Normal,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "$alertCount",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (showOnlyLowStock) Color(0xFFFFEB3B) else if (alertCount > 0) Color(0xFFFFEB3B) else Color.White
+                        )
                     }
 
                     Box(modifier = Modifier
@@ -298,6 +311,56 @@ class MainActivity : ComponentActivity() {
                                 borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
                             )
                         )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            // Active Filter Information Banner
+            if (showOnlyLowStock) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = AlertBackground),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.FilterList,
+                                contentDescription = null,
+                                tint = AlertRed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Mostrando apenas itens com baixo estoque",
+                                fontSize = 12.sp,
+                                color = AlertRed,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        IconButton(
+                            onClick = { showOnlyLowStock = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Limpar Filtro",
+                                tint = AlertRed,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))

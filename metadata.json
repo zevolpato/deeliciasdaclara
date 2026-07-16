@@ -1,5 +1,5 @@
 {
-  "name": "Confeitaria Inventory",
+  "name": "Deelícias da Clara",
   "description": "Aplicativo de controle de estoque completo e intuitivo para confeitarias e padarias.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
